@@ -7,28 +7,176 @@ from types import MappingProxyType
 
 import voluptuous as vol
 from homeassistant.config_entries import ConfigSubentry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, ServiceCall, callback
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 
 from .api import SchellenbergUsbApi
+from .blind_id import claim_blind_id
 from .const import (
+    CMD_DOWN,
+    CMD_STOP,
+    CMD_UP,
+    CONF_BLIND_ID,
+    CONF_COMMAND,
+    CONF_CONFIG_ENTRY_ID,
+    CONF_DEVICE_ID,
+    CONF_ENUM,
     CONF_SERIAL_PORT,
     DOMAIN,
     PLATFORMS,
+    SERVICE_TEST_COMMAND,
+    SUBENTRY_TYPE_BLIND,
     SUBENTRY_TYPE_HUB,
     SchellenbergConfigEntry,
 )
 
 _LOGGER = logging.getLogger(__name__)
 
+
+@callback
+def _async_backfill_blind_ids(
+    hass: HomeAssistant, entry: SchellenbergConfigEntry
+) -> bool:
+    """Persist one stable, collision-free UUID for every blind subentry."""
+    used_ids: set[str] = set()
+    changed = False
+    for subentry in list(entry.subentries.values()):
+        if subentry.subentry_type != SUBENTRY_TYPE_BLIND:
+            continue
+        blind_id, needs_update = claim_blind_id(
+            subentry.data.get(CONF_BLIND_ID), used_ids
+        )
+        if not needs_update:
+            continue
+        data = dict(subentry.data)
+        data[CONF_BLIND_ID] = blind_id
+        hass.config_entries.async_update_subentry(entry, subentry, data=data)
+        changed = True
+        _LOGGER.info("Assigned stable blind ID %s to %s", blind_id, subentry.title)
+    return changed
+
+
 CONFIG_SCHEMA = vol.Schema(
     {DOMAIN: cv.config_entry_only_config_schema(DOMAIN)},
     extra=vol.ALLOW_EXTRA,
 )
 
-# Store setup callbacks for each entry so we can track subentries
-_SETUP_CALLBACKS: dict[str, dict] = {}
+
+def _validate_device_id(value: str) -> str:
+    """Validate and normalize a six-character protocol device ID."""
+    normalized = cv.string(value).strip().upper()
+    if len(normalized) != 6 or any(
+        character not in "0123456789ABCDEF" for character in normalized
+    ):
+        raise vol.Invalid("device ID must be six hexadecimal characters")
+    return normalized
+
+
+def _validate_device_enum(value: str) -> str:
+    """Validate and normalize a two-character protocol enum."""
+    normalized = cv.string(value).strip().upper()
+    if len(normalized) != 2 or any(
+        character not in "0123456789ABCDEF" for character in normalized
+    ):
+        raise vol.Invalid("enum must be two hexadecimal characters")
+    return normalized
+
+
+TEST_COMMAND_SCHEMA = vol.Schema(
+    {
+        vol.Required(CONF_DEVICE_ID): _validate_device_id,
+        vol.Required(CONF_ENUM): _validate_device_enum,
+        vol.Required(CONF_COMMAND): vol.In({"open", "close", "stop"}),
+        vol.Optional(CONF_CONFIG_ENTRY_ID): cv.string,
+    }
+)
+
+
+async def async_setup(hass: HomeAssistant, config: dict) -> bool:
+    """Set up integration-level diagnostic services."""
+
+    async def _handle_test_command(call: ServiceCall) -> None:
+        requested_entry_id = call.data.get(CONF_CONFIG_ENTRY_ID)
+        loaded_entries: list[tuple[SchellenbergConfigEntry, SchellenbergUsbApi]] = []
+        for candidate in hass.config_entries.async_entries(DOMAIN):
+            api = getattr(candidate, "runtime_data", None)
+            if isinstance(api, SchellenbergUsbApi):
+                loaded_entries.append((candidate, api))
+
+        if requested_entry_id:
+            api = next(
+                (
+                    candidate_api
+                    for candidate, candidate_api in loaded_entries
+                    if candidate.entry_id == requested_entry_id
+                ),
+                None,
+            )
+            if api is None:
+                raise ServiceValidationError(
+                    f"No loaded Schellenberg USB entry {requested_entry_id}"
+                )
+        elif len(loaded_entries) == 1:
+            api = loaded_entries[0][1]
+        else:
+            raise ServiceValidationError(
+                "Exactly one Schellenberg USB hub must be loaded, or config_entry_id "
+                "must be supplied"
+            )
+
+        requested_command = call.data[CONF_COMMAND]
+        action = {
+            "open": CMD_UP,
+            "close": CMD_DOWN,
+            "stop": CMD_STOP,
+        }[requested_command]
+        _LOGGER.warning(
+            "test_command service called command_requested=%s device_id=%s enum=%s "
+            "config_entry_id=%s connected=%s mode=%s ready=%s pairing=%s "
+            "transmitter_active=%s busy_latched=%s",
+            requested_command,
+            call.data[CONF_DEVICE_ID],
+            call.data[CONF_ENUM],
+            requested_entry_id or "auto",
+            api.is_connected,
+            api.device_mode or "unknown",
+            api.transmit_ready,
+            api.pairing_active,
+            api.transmitter_active,
+            api.busy_latched,
+        )
+        if not await api.control_blind(
+            call.data[CONF_ENUM],
+            action,
+            device_id=call.data[CONF_DEVICE_ID],
+            source="service",
+        ):
+            _LOGGER.error(
+                "test_command service failed command_requested=%s device_id=%s "
+                "enum=%s reason=%s",
+                requested_command,
+                call.data[CONF_DEVICE_ID],
+                call.data[CONF_ENUM],
+                api.transmit_block_reason or "serial write failed",
+            )
+            raise ServiceValidationError("The serial command could not be queued")
+        _LOGGER.warning(
+            "test_command service result command_requested=%s device_id=%s enum=%s "
+            "result=written_awaiting_ack",
+            requested_command,
+            call.data[CONF_DEVICE_ID],
+            call.data[CONF_ENUM],
+        )
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_TEST_COMMAND,
+        _handle_test_command,
+        schema=TEST_COMMAND_SCHEMA,
+    )
+    return True
 
 
 async def async_setup_entry(
@@ -104,42 +252,46 @@ async def async_setup_entry(
             add_config_subentry_id=hub_subentry.subentry_id,
         )
 
+    # Legacy subentries predate stable per-blind UUIDs. Persist them before
+    # platforms create entities so the registry identity is stable immediately.
+    _async_backfill_blind_ids(hass, entry)
+
     # Forward setup to the hub's platforms (cover, sensor, switch)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    # Add listener to reload entry when subentries are added
+    # Reload when blind subentries are added, removed, renamed, or edited.
+    known_subentries = {
+        subentry_id: (
+            subentry.subentry_type,
+            subentry.title,
+            subentry.unique_id,
+            dict(subentry.data),
+        )
+        for subentry_id, subentry in entry.subentries.items()
+    }
+
     async def _on_entry_updated(
         hass_instance: HomeAssistant, updated_entry: SchellenbergConfigEntry
     ) -> None:
-        """Handle updates to the hub entry (including subentry additions)."""
-        current_subentries = set(updated_entry.subentries.keys())
-        known_subentries = _SETUP_CALLBACKS.get(entry.entry_id, {}).get(
-            "subentry_ids", set()
-        )
-
-        _LOGGER.debug(
-            "Entry update detected. Current subentries: %s, Known subentries: %s",
-            current_subentries,
-            known_subentries,
-        )
-
+        """Handle changes to the hub's blind subentries."""
+        nonlocal known_subentries
+        current_subentries = {
+            subentry_id: (
+                subentry.subentry_type,
+                subentry.title,
+                subentry.unique_id,
+                dict(subentry.data),
+            )
+            for subentry_id, subentry in updated_entry.subentries.items()
+        }
         if current_subentries != known_subentries:
             _LOGGER.info(
-                "Subentries changed, reloading entry. Old: %s, New: %s",
-                known_subentries,
-                current_subentries,
+                "Subentry configuration changed; reloading entry %s", entry.entry_id
             )
-            # Update tracked subentries before reloading
-            _SETUP_CALLBACKS[entry.entry_id]["subentry_ids"] = current_subentries
-            # Reload the entire entry to re-setup all platforms with new subentries
+            known_subentries = current_subentries
             await hass_instance.config_entries.async_reload(entry.entry_id)
 
-    entry.add_update_listener(_on_entry_updated)
-
-    # Track known subentries
-    if entry.entry_id not in _SETUP_CALLBACKS:
-        _SETUP_CALLBACKS[entry.entry_id] = {}
-    _SETUP_CALLBACKS[entry.entry_id]["subentry_ids"] = set(entry.subentries.keys())
+    entry.async_on_unload(entry.add_update_listener(_on_entry_updated))
 
     return True
 

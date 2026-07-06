@@ -25,7 +25,26 @@ SUBENTRY_TYPE_BLIND = "blind"
 
 # Configuration keys
 CONF_SERIAL_PORT = "serial_port"
+CONF_BLIND_ID = "blind_id"
 CONF_DEVICE_NAME = "device_name"
+CONF_DEVICE_ENUM = "device_enum"
+CONF_COMMAND_DEVICE_ID = "command_device_id"
+CONF_COMMAND_ENUM = "command_enum"
+CONF_STATUS_DEVICE_ID = "status_device_id"
+CONF_STATUS_ENUM = "status_enum"
+CONF_SECONDARY_STATUS_IDENTITIES = "secondary_status_identities"
+CONF_STATUS_IDENTITY_SOURCE = "status_identity_source"
+CONF_LAST_CALIBRATION = "last_calibration"
+STATUS_IDENTITY_SOURCE_CALIBRATION = "calibration"
+STATUS_IDENTITY_SOURCE_REMOTE_DISCOVERY = "remote_discovery"
+STATUS_IDENTITY_SOURCE_MANUAL = "manual"
+STATUS_IDENTITY_SOURCE_UNKNOWN = "unknown"
+CONF_INVERT_DIRECTION = "invert_direction"
+CONF_COMMAND = "command"
+CONF_ENUM = "enum"
+CONF_CONFIG_ENTRY_ID = "config_entry_id"
+CONF_OPEN_TIME_SECONDS = "open_time_seconds"
+CONF_CLOSE_TIME_SECONDS = "close_time_seconds"
 
 # Data keys
 DATA_API_INSTANCE = "api_instance"
@@ -90,6 +109,11 @@ SIGNAL_PAIRING_STARTED = f"{DOMAIN}_pairing_started"
 SIGNAL_PAIRING_TIMEOUT = f"{DOMAIN}_pairing_timeout"
 SIGNAL_STICK_STATUS_UPDATED = f"{DOMAIN}_stick_status_updated"
 SIGNAL_CALIBRATION_COMPLETED = f"{DOMAIN}_calibration_completed"
+SIGNAL_MANUAL_POSITION_SYNC = f"{DOMAIN}_manual_position_sync"
+
+# Services
+SERVICE_TEST_COMMAND = "test_command"
+TEST_COMMAND_DELAY = 0.75
 
 # Device verification
 VERIFY_TIMEOUT = 5  # seconds to wait for verification response
@@ -98,6 +122,7 @@ VERIFY_TIMEOUT = 5  # seconds to wait for verification response
 # Pairing constants
 PAIRING_TIMEOUT = 120  # seconds to wait for pairing response
 PAIRING_DEVICE_ENUM_START = 0x10  # Start from 0x10 for new devices
+STATUS_DISCOVERY_TIMEOUT = 45  # seconds to capture original-remote frames
 
 # Calibration constants
 CALIBRATION_TIMEOUT = 300  # Maximum 5 minutes (300 seconds) for calibration
