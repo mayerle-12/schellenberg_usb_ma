@@ -48,6 +48,8 @@ from .const import (
     CMD_VERIFY,
     CONF_COMMAND_DEVICE_ID,
     CONF_COMMAND_ENUM,
+    CONF_DEVICE_ENUM,
+    CONF_DEVICE_ID,
     CONF_SECONDARY_STATUS_IDENTITIES,
     CONF_STATUS_DEVICE_ID,
     CONF_STATUS_IDENTITY_SOURCE,
@@ -57,8 +59,10 @@ from .const import (
     SIGNAL_DEVICE_EVENT,
     SIGNAL_MANUAL_POSITION_SYNC,
     SIGNAL_STICK_STATUS_UPDATED,
-    STATUS_IDENTITY_SOURCE_UNKNOWN,
     STATUS_DISCOVERY_TIMEOUT,
+    STATUS_IDENTITY_SOURCE_REMOTE_DISCOVERY,
+    STATUS_IDENTITY_SOURCE_UNKNOWN,
+    SUBENTRY_TYPE_BLIND,
     VERIFY_TIMEOUT,
 )
 from .identities import (
@@ -119,6 +123,8 @@ class SchellenbergUsbApi:
         """Initialize the Schellenberg USB API."""
         self.hass = hass
         self.port = port
+        self.config_entry_id: str | None = None
+        self._auto_bind_in_progress: set[StatusIdentity] = set()
         self._transport: asyncio.Transport | None = None
         self._protocol: SchellenbergProtocol | None = None
         self._registered_devices: dict[
@@ -579,14 +585,19 @@ class SchellenbergUsbApi:
                         level,
                         "Received device_id=%s enum=%s cmd=%s matched=False "
                         "interpreted=%s; no cover has this status identity. "
-                        "Set the blind's primary status identity to %s/%s "
-                        "(Configure device → edit identities, or Discover status).",
+                        "Attempting auto-bind to a blind with unknown status.",
                         normalized_device_id,
                         normalized_device_enum,
                         normalized_command,
                         interpretation,
-                        normalized_device_id,
-                        normalized_device_enum,
+                    )
+                    self.hass.async_create_task(
+                        self._async_try_auto_bind_status_identity(
+                            normalized_device_id,
+                            normalized_device_enum,
+                            normalized_command,
+                        ),
+                        name="schellenberg-auto-bind-status",
                     )
                 else:
                     _LOGGER.debug(
@@ -616,6 +627,113 @@ class SchellenbergUsbApi:
                     )
             except (IndexError, ValueError) as err:
                 _LOGGER.debug("Failed to parse message %s: %s", message, err)
+
+    async def _async_try_auto_bind_status_identity(
+        self,
+        device_id: str,
+        device_enum: str,
+        command: str,
+    ) -> None:
+        """Bind an unmatched RF identity to the only blind missing status.
+
+        Fresh pairings often leave status as unknown while the motor already
+        reports on its own identity (e.g. F4442C/0E). Persist that identity and
+        deliver the current frame so stop/status tracking starts working.
+        """
+        identity = normalize_status_identity(device_id, device_enum)
+        if identity is None:
+            return
+        if identity in self._registered_entity_keys:
+            return
+        if identity in self._auto_bind_in_progress:
+            return
+        if not self.config_entry_id:
+            return
+
+        entry = self.hass.config_entries.async_get_entry(self.config_entry_id)
+        if entry is None:
+            return
+
+        blind_subentries = [
+            subentry
+            for subentry in entry.subentries.values()
+            if subentry.subentry_type == SUBENTRY_TYPE_BLIND
+        ]
+        if not blind_subentries:
+            return
+
+        def _missing_status(subentry: Any) -> bool:
+            source = str(subentry.data.get(CONF_STATUS_IDENTITY_SOURCE) or "")
+            status_id = str(subentry.data.get(CONF_STATUS_DEVICE_ID) or "").strip()
+            status_enum = str(subentry.data.get(CONF_STATUS_ENUM) or "").strip()
+            return source == STATUS_IDENTITY_SOURCE_UNKNOWN or not (
+                status_id and status_enum
+            )
+
+        candidates = [sub for sub in blind_subentries if _missing_status(sub)]
+        if len(candidates) != 1:
+            _LOGGER.warning(
+                "Cannot auto-bind status identity %s/%s: %d blinds need status "
+                "(need exactly one). Set primary status manually to %s/%s.",
+                device_id,
+                device_enum,
+                len(candidates),
+                device_id,
+                device_enum,
+            )
+            return
+
+        subentry = candidates[0]
+        self._auto_bind_in_progress.add(identity)
+        try:
+            command_device_id = str(
+                subentry.data.get(CONF_COMMAND_DEVICE_ID)
+                or subentry.data.get(CONF_DEVICE_ID)
+                or ""
+            ).strip().upper()
+            command_enum = str(
+                subentry.data.get(CONF_COMMAND_ENUM)
+                or subentry.data.get(CONF_DEVICE_ENUM)
+                or ""
+            ).strip().upper()
+            if not command_device_id or not command_enum:
+                return
+
+            new_data = dict(subentry.data)
+            new_data[CONF_STATUS_DEVICE_ID] = device_id
+            new_data[CONF_STATUS_ENUM] = device_enum
+            new_data[CONF_STATUS_IDENTITY_SOURCE] = (
+                STATUS_IDENTITY_SOURCE_REMOTE_DISCOVERY
+            )
+
+            self.register_entity(
+                device_id,
+                device_enum,
+                subentry.title,
+                command_device_id=command_device_id,
+                command_enum=command_enum,
+                secondary_status_identities=new_data.get(
+                    CONF_SECONDARY_STATUS_IDENTITIES
+                ),
+            )
+            self.hass.config_entries.async_update_subentry(
+                entry, subentry, data=new_data
+            )
+            _LOGGER.warning(
+                "Auto-bound status identity %s/%s to blind '%s' "
+                "(source=remote_discovery). Delivering cmd=%s.",
+                device_id,
+                device_enum,
+                subentry.title,
+                command,
+            )
+            async_dispatcher_send(
+                self.hass,
+                f"{SIGNAL_DEVICE_EVENT}_{device_id}_{device_enum}",
+                command,
+            )
+        finally:
+            self._auto_bind_in_progress.discard(identity)
 
     async def send_command(self, command: str, *, source: str = "internal") -> bool:
         """Queue a raw command on the serial transport."""

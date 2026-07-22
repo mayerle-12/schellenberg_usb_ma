@@ -324,7 +324,12 @@ class SchellenbergCover(CoverEntity, RestoreEntity):
         self._command_device_id = command_device_id or device_id
         self._command_enum = device_enum
         self._status_identity_source = status_identity_source or "legacy"
-        if self._status_identity_source == STATUS_IDENTITY_SOURCE_UNKNOWN:
+        # Unknown means "do not invent status from the command identity". Explicit
+        # status fields (manual/auto-bind) are still honored.
+        if (
+            self._status_identity_source == STATUS_IDENTITY_SOURCE_UNKNOWN
+            and not (status_device_id and status_enum)
+        ):
             primary_identity = None
         else:
             primary_identity = normalize_status_identity(
