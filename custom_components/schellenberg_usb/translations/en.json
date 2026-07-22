@@ -52,12 +52,12 @@
         },
         "pair_device": {
           "title": "Pair and calibrate",
-          "description": "After pressing Pair, put only the new motor into learn mode within 2 minutes (power off other motors if they steal the pair). Already-paired motors are ignored. Home Assistant waits for an RF learn frame (sl), then sends teach command 60 followed by finish command 40. A USB stick ACK does not prove the motor learned the transmitter.",
+          "description": "Put only the new motor into learn/programming mode first (power off other motors if needed), then press Pair. Home Assistant immediately sends teach command 60 and finish command 40. If the motor also sends an RF learn frame (sl), that identity is stored; silent motors get a synthetic ID and can still be controlled by enum. A USB stick ACK does not prove the motor learned the transmitter.",
           "submit": "Pair"
         },
         "pair_test": {
           "title": "Pair and test",
-          "description": "After pressing Pair, put only the new motor into learn mode within 2 minutes (power off other motors if they steal the pair). Already-paired motors are ignored. Home Assistant waits for an RF learn frame (sl), then sends teach command 60 followed by finish command 40. A USB stick ACK does not prove the motor learned the transmitter. A short Open/Stop test follows; confirm whether the motor actually moved.",
+          "description": "Put only the new motor into learn/programming mode first (power off other motors if needed), then press Pair. Home Assistant immediately sends teach command 60 and finish command 40. If the motor also sends an RF learn frame (sl), that identity is stored; silent motors get a synthetic ID and can still be controlled by enum. A USB stick ACK does not prove the motor learned the transmitter. A short Open/Stop test follows; confirm whether the motor actually moved.",
           "submit": "Pair"
         },
         "manual": {
