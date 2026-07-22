@@ -2,21 +2,21 @@
   "config": {
     "step": {
       "menu": {
-        "title": "Schellenberg USB setup",
+        "title": "Schellenberg USB MA setup",
         "menu_options": {
           "user": "Set up USB hub",
           "pair_device_menu": "Pair new device"
         }
       },
       "user": {
-        "title": "Set up Schellenberg USB Stick",
-        "description": "Enter the serial port path for your Schellenberg USB stick.",
+        "title": "Set up Schellenberg USB MA Stick",
+        "description": "Enter the serial port path for your Schellenberg USB MA stick.",
         "data": {
           "serial_port": "Serial port"
         }
       },
       "usb_confirm": {
-        "title": "Confirm Schellenberg USB Stick",
+        "title": "Confirm Schellenberg USB MA Stick",
         "description": "Confirm the serial port path for your discovered Schellenberg USB stick.",
         "data": {
           "serial_port": "Serial port"
@@ -253,8 +253,8 @@
   "options": {
     "step": {
       "init": {
-        "title": "Schellenberg USB",
-        "description": "Edit the serial port path for the Schellenberg USB hub.",
+        "title": "Schellenberg USB MA",
+        "description": "Edit the serial port path for the Schellenberg USB MA hub.",
         "data": {
           "serial_port": "Serial port"
         },
@@ -287,7 +287,7 @@
   "services": {
     "pair": {
       "name": "Pair device",
-      "description": "Activate pairing mode on the Schellenberg USB stick to pair a new blind motor. After calling this service, press the pairing button on your blind motor within 10 seconds."
+      "description": "Activate pairing mode on the Schellenberg USB MA stick to pair a new blind motor. After calling this service, press the pairing button on your blind motor within 10 seconds."
     },
     "test_command": {
       "name": "Test blind command",

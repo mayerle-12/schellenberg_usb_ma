@@ -133,7 +133,7 @@ class SchellenbergUsbConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self._abort_if_unique_id_configured()
 
                 return self.async_create_entry(
-                    title=f"Schellenberg USB ({port})", data=user_input
+                    title=f"Schellenberg USB MA ({port})", data=user_input
                 )
             except serial.SerialException:
                 errors["base"] = "cannot_connect"
@@ -196,7 +196,7 @@ class SchellenbergUsbConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 )
                 self._abort_if_unique_id_configured()
 
-                title = self._discovered_title or f"Schellenberg USB ({port})"
+                title = self._discovered_title or f"Schellenberg USB MA ({port})"
                 return self.async_create_entry(
                     title=title, data={CONF_SERIAL_PORT: port}
                 )
@@ -1517,7 +1517,7 @@ class SchellenbergPairingSubentryFlow(ConfigSubentryFlow):
         api = self._get_entry().runtime_data
         diagnostics = "\n".join(
             (
-                "Schellenberg USB blind diagnostics",
+                "Schellenberg USB MA blind diagnostics",
                 f"Selected blind: {details['name']}",
                 "",
                 "Stick state:",

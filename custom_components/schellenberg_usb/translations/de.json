@@ -2,22 +2,22 @@
   "config": {
     "step": {
       "menu": {
-        "title": "Schellenberg USB Einrichtung",
+        "title": "Schellenberg USB MA Einrichtung",
         "menu_options": {
           "user": "USB-Hub einrichten",
           "pair_device_menu": "Neues Gerät koppeln"
         }
       },
       "user": {
-        "title": "Schellenberg USB-Stick einrichten",
-        "description": "Geben Sie den seriellen Anschlusspfad für Ihren Schellenberg USB-Stick ein.",
+        "title": "Schellenberg USB MA-Stick einrichten",
+        "description": "Geben Sie den seriellen Anschlusspfad für Ihren Schellenberg USB MA-Stick ein.",
         "data": {
           "serial_port": "Serieller Anschluss"
         }
       },
       "usb_confirm": {
-        "title": "Schellenberg USB-Stick bestätigen",
-        "description": "Bestätigen Sie den seriellen Anschlusspfad für Ihren erkannten Schellenberg USB-Stick.",
+        "title": "Schellenberg USB MA-Stick bestätigen",
+        "description": "Bestätigen Sie den seriellen Anschlusspfad für Ihren erkannten Schellenberg USB MA-Stick.",
         "data": {
           "serial_port": "Serieller Anschluss"
         }
@@ -254,8 +254,8 @@
   "options": {
     "step": {
       "init": {
-        "title": "Schellenberg USB",
-        "description": "Bearbeiten Sie den seriellen Anschlusspfad für den Schellenberg USB-Hub.",
+        "title": "Schellenberg USB MA",
+        "description": "Bearbeiten Sie den seriellen Anschlusspfad für den Schellenberg USB MA-Hub.",
         "data": {
           "serial_port": "Serieller Anschluss"
         },
@@ -288,7 +288,7 @@
   "services": {
     "pair": {
       "name": "Gerät koppeln",
-      "description": "Aktivieren Sie den Kopplungsmodus am Schellenberg USB-Stick, um einen neuen Rollladenmotor zu koppeln. Drücken Sie nach dem Aufrufen dieses Dienstes innerhalb von 10 Sekunden die Kopplungstaste an Ihrem Rollladenmotor."
+      "description": "Aktivieren Sie den Kopplungsmodus am Schellenberg USB MA-Stick, um einen neuen Rollladenmotor zu koppeln. Drücken Sie nach dem Aufrufen dieses Dienstes innerhalb von 10 Sekunden die Kopplungstaste an Ihrem Rollladenmotor."
     },
     "test_command": {
       "name": "Test blind command",

@@ -38,7 +38,7 @@ def mock_config_entry(hass: HomeAssistant) -> ConfigEntry:
     entry = ConfigEntry(
         version=1,
         domain=DOMAIN,
-        title="Schellenberg USB",
+        title="Schellenberg USB MA",
         data={CONF_SERIAL_PORT: "/dev/ttyUSB0"},
         options={},
         entry_id="test_entry_sensor",
@@ -227,7 +227,7 @@ async def test_sensor_device_info(
 
     assert sensor.device_info is not None
     assert sensor.device_info["identifiers"] == {(DOMAIN, "test_entry_sensor")}
-    assert sensor.device_info["name"] == "Schellenberg USB Stick"
+    assert sensor.device_info["name"] == "Schellenberg USB MA Stick"
     assert sensor.device_info["manufacturer"] == "Schellenberg"
 
 

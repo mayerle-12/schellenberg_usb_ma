@@ -2,7 +2,7 @@
   "config": {
     "step": {
       "menu": {
-        "title": "Configuración de Schellenberg USB",
+        "title": "Configuración de Schellenberg USB MA",
         "menu_options": {
           "user": "Configurar hub USB",
           "pair_device_menu": "Emparejar nuevo dispositivo"
@@ -254,7 +254,7 @@
   "options": {
     "step": {
       "init": {
-        "title": "Schellenberg USB",
+        "title": "Schellenberg USB MA",
         "description": "Edite la ruta del puerto serie para el hub USB Schellenberg.",
         "data": {
           "serial_port": "Puerto serie"

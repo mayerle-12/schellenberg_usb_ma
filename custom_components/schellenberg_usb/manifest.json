@@ -1,6 +1,6 @@
 {
   "domain": "schellenberg_usb",
-  "name": "Schellenberg USB",
+  "name": "Schellenberg USB MA",
   "codeowners": ["@mayerle-12"],
   "config_flow": true,
   "documentation": "https://github.com/mayerle-12/schellenberg_usb_ma",

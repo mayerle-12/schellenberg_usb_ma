@@ -44,7 +44,7 @@ def mock_config_entry(hass: HomeAssistant) -> ConfigEntry:
     entry = ConfigEntry(
         version=1,
         domain=DOMAIN,
-        title="Schellenberg USB",
+        title="Schellenberg USB MA",
         data={CONF_SERIAL_PORT: "/dev/ttyUSB0"},
         options={},
         entry_id="test_entry_switch",
@@ -291,7 +291,7 @@ async def test_led_switch_device_info(
 
     assert switch.device_info is not None
     assert switch.device_info["identifiers"] == {(DOMAIN, "test_entry_switch")}
-    assert switch.device_info["name"] == "Schellenberg USB Stick"
+    assert switch.device_info["name"] == "Schellenberg USB MA Stick"
     assert switch.device_info["manufacturer"] == "Schellenberg"
 
 

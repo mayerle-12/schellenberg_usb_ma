@@ -1,4 +1,4 @@
-# Schellenberg USB for Home Assistant
+# Schellenberg USB MA for Home Assistant
 
 [![GitHub Release](https://img.shields.io/github/release/GimpArm/schellenberg_usb.svg)](https://github.com/GimpArm/schellenberg_usb/releases)
 [![License](https://img.shields.io/github/license/GimpArm/schellenberg_usb.svg)](https://github.com/GimpArm/schellenberg_usb/blob/main/LICENSE)
@@ -74,7 +74,7 @@ repository:
 1. Open HACS in Home Assistant.
 2. Open the HACS menu and choose **Custom repositories**.
 3. Add this GitHub repository and select **Integration** as the category.
-4. Find **Schellenberg USB** in HACS and install it.
+4. Find **Schellenberg USB MA** in HACS and install it.
 5. Restart Home Assistant.
 
 ### Manual installation
@@ -99,9 +99,9 @@ such as `cover.extension_0_extension_0`.
 ## Quick start: add your first blind
 
 1. Go to **Settings > Devices & services**.
-2. Select **Add integration**, search for **Schellenberg USB**, and add it.
+2. Select **Add integration**, search for **Schellenberg USB MA**, and add it.
 3. Select the USB stick path. Prefer `/dev/serial/by-id/...` when offered.
-4. Open the Schellenberg USB integration and choose **Add blind**.
+4. Open the Schellenberg USB MA integration and choose **Add blind**.
 5. Select **Pair and test**, the recommended setup method.
 6. Follow the on-screen instructions and put the correct motor or channel into
    learning mode using the original remote or motor manual.

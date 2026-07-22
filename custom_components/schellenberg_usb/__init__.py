@@ -116,13 +116,13 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             )
             if api is None:
                 raise ServiceValidationError(
-                    f"No loaded Schellenberg USB entry {requested_entry_id}"
+                    f"No loaded Schellenberg USB MA entry {requested_entry_id}"
                 )
         elif len(loaded_entries) == 1:
             api = loaded_entries[0][1]
         else:
             raise ServiceValidationError(
-                "Exactly one Schellenberg USB hub must be loaded, or config_entry_id "
+                "Exactly one Schellenberg USB MA hub must be loaded, or config_entry_id "
                 "must be supplied"
             )
 
@@ -235,7 +235,7 @@ async def async_setup_entry(
             config_entry_id=entry.entry_id,
             config_subentry_id=hub_subentry.subentry_id,
             identifiers={(DOMAIN, entry.entry_id)},
-            name="Schellenberg USB Stick",
+            name="Schellenberg USB MA Stick",
             manufacturer="Schellenberg",
             model="USB Stick",
         )

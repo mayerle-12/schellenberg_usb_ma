@@ -84,7 +84,7 @@ def mock_config_entry(hass: HomeAssistant) -> ConfigEntry:
     entry = ConfigEntry(
         version=1,
         domain=DOMAIN,
-        title="Schellenberg USB",
+        title="Schellenberg USB MA",
         data={CONF_SERIAL_PORT: "/dev/ttyUSB0"},
         options={},
         entry_id="test_entry_cover",
@@ -117,7 +117,7 @@ async def test_async_setup_entry_creates_covers(
     dev_reg.async_get_or_create(
         config_entry_id=mock_config_entry.entry_id,
         identifiers={(DOMAIN, mock_config_entry.entry_id)},
-        name="Schellenberg USB Stick",
+        name="Schellenberg USB MA Stick",
         manufacturer="Schellenberg",
     )
 
@@ -178,7 +178,7 @@ async def test_setup_restores_manual_cover_from_persisted_subentry(
         version=1,
         minor_version=1,
         domain=DOMAIN,
-        title="Schellenberg USB",
+        title="Schellenberg USB MA",
         data={CONF_SERIAL_PORT: "/dev/ttyUSB0"},
         options={},
         source="user",

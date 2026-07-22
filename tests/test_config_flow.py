@@ -189,7 +189,7 @@ async def test_manual_subentry_persists_through_storage_reload(
     entry = MockConfigEntry(
         domain=DOMAIN,
         data={"serial_port": "/dev/ttyUSB0"},
-        title="Schellenberg USB",
+        title="Schellenberg USB MA",
     )
     entry.add_to_hass(hass)
 
@@ -978,7 +978,7 @@ async def test_developer_menu_navigation_dispatches_every_command(
     entry = MockConfigEntry(
         domain=DOMAIN,
         data={"serial_port": "/dev/ttyUSB0"},
-        title="Schellenberg USB",
+        title="Schellenberg USB MA",
     )
     entry.add_to_hass(hass)
     subentry = ConfigSubentry(

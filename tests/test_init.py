@@ -32,7 +32,7 @@ def mock_config_entry(hass: HomeAssistant) -> ConfigEntry:
     entry = ConfigEntry(
         version=1,
         domain=DOMAIN,
-        title="Schellenberg USB",
+        title="Schellenberg USB MA",
         data={CONF_SERIAL_PORT: "/dev/ttyUSB0"},
         options={},
         entry_id="test_entry_id",
@@ -223,7 +223,7 @@ async def test_async_setup_entry_creates_hub_device(
             identifiers={(DOMAIN, mock_config_entry.entry_id)}
         )
         assert hub_device is not None
-        assert hub_device.name == "Schellenberg USB Stick"
+        assert hub_device.name == "Schellenberg USB MA Stick"
 
 
 @pytest.mark.asyncio

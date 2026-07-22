@@ -59,7 +59,7 @@ class SchellenbergBaseSensor(SensorEntity):
         self.api = api
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.entry_id)},
-            name="Schellenberg USB Stick",
+            name="Schellenberg USB MA Stick",
             manufacturer="Schellenberg",
             model="USB Stick",
             sw_version=api.device_version,

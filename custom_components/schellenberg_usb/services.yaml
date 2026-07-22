@@ -33,7 +33,7 @@ test_command:
             - stop
     config_entry_id:
       name: Config entry ID
-      description: Required only when more than one Schellenberg USB hub is loaded.
+      description: Required only when more than one Schellenberg USB MA hub is loaded.
       required: false
       selector:
         text:

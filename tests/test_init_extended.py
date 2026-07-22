@@ -62,7 +62,7 @@ async def test_async_setup_entry_updates_existing_hub_device(
     entry = ConfigEntry(
         version=1,
         domain=DOMAIN,
-        title="Schellenberg USB",
+        title="Schellenberg USB MA",
         data={CONF_SERIAL_PORT: "/dev/ttyUSB0"},
         options={},
         entry_id="test_entry_with_device",
@@ -110,7 +110,7 @@ async def test_async_unload_entry_when_unload_platforms_fails(
     entry = ConfigEntry(
         version=1,
         domain=DOMAIN,
-        title="Schellenberg USB",
+        title="Schellenberg USB MA",
         data={CONF_SERIAL_PORT: "/dev/ttyUSB0"},
         options={},
         entry_id="test_entry_unload_fail",
@@ -153,7 +153,7 @@ async def test_async_setup_entry_creates_subentry_if_missing(
     entry = ConfigEntry(
         version=1,
         domain=DOMAIN,
-        title="Schellenberg USB",
+        title="Schellenberg USB MA",
         data={CONF_SERIAL_PORT: "/dev/ttyUSB0"},
         options={},
         entry_id="test_entry_subentry",
@@ -187,7 +187,7 @@ async def test_async_setup_entry_sets_up_platforms(hass: HomeAssistant) -> None:
     entry = ConfigEntry(
         version=1,
         domain=DOMAIN,
-        title="Schellenberg USB",
+        title="Schellenberg USB MA",
         data={CONF_SERIAL_PORT: "/dev/ttyUSB0"},
         options={},
         entry_id="test_entry_platforms",
@@ -220,7 +220,7 @@ async def test_async_setup_entry_initializes_api(hass: HomeAssistant) -> None:
     entry = ConfigEntry(
         version=1,
         domain=DOMAIN,
-        title="Schellenberg USB",
+        title="Schellenberg USB MA",
         data={CONF_SERIAL_PORT: "/dev/ttyUSB1"},  # Different port
         options={},
         entry_id="test_entry_api_init",
@@ -255,7 +255,7 @@ async def test_async_setup_entry_starts_connection(hass: HomeAssistant) -> None:
     entry = ConfigEntry(
         version=1,
         domain=DOMAIN,
-        title="Schellenberg USB",
+        title="Schellenberg USB MA",
         data={CONF_SERIAL_PORT: "/dev/ttyUSB0"},
         options={},
         entry_id="test_entry_connect",

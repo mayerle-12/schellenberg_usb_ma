@@ -57,7 +57,7 @@ class SchellenbergLedSwitch(RestoreEntity, SwitchEntity):
         self._attr_unique_id = f"{entry.entry_id}_led"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.entry_id)},  # Hub device identifier
-            name="Schellenberg USB Stick",
+            name="Schellenberg USB MA Stick",
             manufacturer="Schellenberg",
             model="USB Stick",
             sw_version=api.device_version,
