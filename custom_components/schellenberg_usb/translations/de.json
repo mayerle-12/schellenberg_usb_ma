@@ -52,7 +52,7 @@
         },
         "pair_device": {
           "title": "Neues Gerät koppeln",
-          "description": "After pressing Pair, use an already paired physical remote within 2 minutes: select the motor/channel, press its programming button until the channel LED blinks, then press Stop and wait for the motor to beep or rattle. Home Assistant will detect the frame and send teach command 60 followed by finish command 40 on the same enum. A USB stick ACK does not prove the motor learned the transmitter.",
+          "description": "After pressing Pair, put only the new motor into learn mode within 2 minutes (power off other motors if they steal the pair). Already-paired motors are ignored. Home Assistant waits for an RF learn frame (sl), then sends teach command 60 followed by finish command 40. A USB stick ACK does not prove the motor learned the transmitter.",
           "submit": "Koppeln"
         },
         "manual": {
@@ -100,7 +100,7 @@
         },
         "pair_test": {
           "title": "Pair and test",
-          "description": "After pressing Pair, use an already paired physical remote within 2 minutes: select the motor/channel, press its programming button until the channel LED blinks, then press Stop and wait for the motor to beep or rattle. Home Assistant will detect the frame and send teach command 60 followed by finish command 40 on the same enum. A USB stick ACK does not prove the motor learned the transmitter. A short Open/Stop test follows; confirm whether the motor actually moved.",
+          "description": "After pressing Pair, put only the new motor into learn mode within 2 minutes (power off other motors if they steal the pair). Already-paired motors are ignored. Home Assistant waits for an RF learn frame (sl), then sends teach command 60 followed by finish command 40. A USB stick ACK does not prove the motor learned the transmitter. A short Open/Stop test follows; confirm whether the motor actually moved.",
           "submit": "Pair"
         },
         "manual_next": {
@@ -174,7 +174,8 @@
           "title": "Erkannte Statusidentitäten bestätigen",
           "description": "Command/transmit identity: {command_identity}\nFrames observed: {frame_count}\n\nDetected primary status identity: {primary_identity}\nPrimary commands observed: {primary_commands}\nPrimary timestamps: {primary_timestamps}\n\nDetected secondary identities:\n{secondary_identities}\n\nUnknown commands observed:\n{unknown_commands}\n\nPosition tracking: {position_tracking}",
           "submit": "Save detected identities"
-        },        "set_position_manual": {
+        },
+        "set_position_manual": {
           "title": "Position manuell setzen",
           "description": "Die aktuelle Position für {selected_blind} festlegen, ohne den Motor zu bewegen. Aktuell erfasste Position: {current_position}.",
           "data": {

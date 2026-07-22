@@ -449,10 +449,10 @@ class SchellenbergUsbApi:
         # 00BE = 2 bytes to ignore (address prefix)
         # XXXXXX = 3 bytes device ID (the actual device ID we want)
         # Rest = can be ignored
-        if message.startswith("sl") and len(message) >= 8:
+        if message.startswith("sl") and len(message) >= 12:
             # Extract the device ID: skip "sl" (2 chars) + "00BE" (4 chars) = 6 chars
             # Then take the next 6 characters (3 bytes as hex) = 6 chars
-            device_id = message[6:12]
+            device_id = message[6:12].upper()
             _LOGGER.debug(
                 "Received pairing/list response: %s, extracted device ID: %s",
                 message,
@@ -463,30 +463,37 @@ class SchellenbergUsbApi:
                 self._pairing_future is not None and not self._pairing_future.done(),
             )
 
-            # If we're in pairing mode, accept ANY device response
-            # because the user is explicitly trying to pair RIGHT NOW
+            # Accept only unknown motors. Already-paired motors often re-emit sl
+            # frames (or win the race before the intended motor enters learn mode);
+            # latching them re-teaches 0x60 onto the wrong cover.
             if self._pairing_future and not self._pairing_future.done():
+                if self._is_known_rf_device_id(device_id):
+                    _LOGGER.info(
+                        "Ignoring pairing/list frame from already-known device_id=%s; "
+                        "waiting for a new motor in learn mode",
+                        device_id,
+                    )
+                    return
                 _LOGGER.info("Pairing candidate detected device_id=%s", device_id)
                 self._pairing_future.set_result(device_id)
                 # Don't send dispatcher signal here - let the caller handle persistence
                 return
             return
 
-        # Handle Schellenberg device messages
-        # Format: ssXXYYYYYYZZZZCCPPRR
+        # Handle Schellenberg device messages (Hypfer / LoPablo layout):
+        # Format: ssXXYYYYYYCCNNNNPP RR
         # ss = prefix (2 chars)
         # XX = device enum (2 chars)
         # YYYYYY = device ID (6 chars)
-        # ZZZZ = message incrementor (4 chars, ignored)
-        # CC = command (2 chars)
-        # PP = padding (2 chars, ignored)
+        # CC = command (2 chars) at [10:12] — NOT at [14:16]
+        # NNNN = 16-bit rolling counter (4 chars, ignored for command decode)
+        # PP = local/hold counter (2 chars, ignored)
         # RR = signal strength (2 chars, ignored)
         if message.startswith("ss") and len(message) >= 18:
             try:
                 device_enum = message[2:4]
                 device_id = message[4:10]
-                # Skip message incrementor at positions 10:14
-                command = message[14:16]
+                command = message[10:12]
 
                 _LOGGER.debug(
                     "Parsed: enum=%s, id=%s, cmd=%s", device_enum, device_id, command
@@ -546,18 +553,12 @@ class SchellenbergUsbApi:
 
                 # If we're in pairing mode and this is a new device
                 if self._pairing_future and not self._pairing_future.done():
-                    known_status_id = any(
-                        key[0] == normalized_device_id
-                        for key in self._registered_entity_keys
-                    )
-                    if (
-                        device_id not in self._registered_devices
-                        and not known_status_id
-                    ):
+                    if not self._is_known_rf_device_id(normalized_device_id):
                         _LOGGER.info(
-                            "Pairing candidate detected device_id=%s", device_id
+                            "Pairing candidate detected device_id=%s",
+                            normalized_device_id,
                         )
-                        self._pairing_future.set_result(device_id)
+                        self._pairing_future.set_result(normalized_device_id)
                         # Don't send dispatcher signal here - let the caller handle persistence
                         return
 
@@ -930,9 +931,13 @@ class SchellenbergUsbApi:
         paired = False
 
         try:
-            _LOGGER.debug("Entering pairing mode with command: sp")
+            # `sp` only reads stick parameters (Hypfer). It does not arm learn mode;
+            # we wait for an RF `sl…` (or new `ss…`) frame from a motor in learn mode.
+            _LOGGER.debug(
+                "Listening for motor learn frame (sl); probing stick with command: sp"
+            )
             if not await self.send_command(CMD_GET_PARAM_P):
-                raise ConnectionError("could not enter pairing mode")
+                raise ConnectionError("could not probe stick before pairing listen")
 
             device_id = await asyncio.wait_for(
                 self._pairing_future, timeout=PAIRING_TIMEOUT
@@ -1237,6 +1242,18 @@ class SchellenbergUsbApi:
                 raw_payload,
             )
         return sent
+
+    def _is_known_rf_device_id(self, device_id: object) -> bool:
+        """Return True when device_id is already used as command or status identity."""
+        normalized = str(device_id).strip().upper()
+        if not normalized:
+            return False
+        if any(
+            str(registered_id).strip().upper() == normalized
+            for registered_id in self._registered_devices
+        ):
+            return True
+        return any(key[0] == normalized for key in self._registered_entity_keys)
 
     def initialize_next_device_enum(self) -> str:
         """Get the next available device enum based on registered devices.

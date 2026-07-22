@@ -256,6 +256,40 @@ async def test_handle_message_pairing_device_id(hass: HomeAssistant) -> None:
 
 
 @pytest.mark.asyncio
+async def test_handle_message_pairing_ignores_known_sl_device(
+    hass: HomeAssistant,
+) -> None:
+    """Test already-paired motors cannot win an sl pairing race."""
+    api = SchellenbergUsbApi(hass, "/dev/ttyUSB0")
+    api.register_entity("DOOR01", "10", "Terrace door")
+    api._pairing_future = hass.loop.create_future()
+
+    api._handle_message("sl00BEDOOR01")
+
+    assert not api._pairing_future.done()
+
+    api._handle_message("sl00BEWIND01")
+    assert api._pairing_future.result() == "WIND01"
+
+
+@pytest.mark.asyncio
+async def test_handle_message_parses_command_at_hypfer_offset(
+    hass: HomeAssistant,
+) -> None:
+    """Test ss frames decode command at [10:12], not the rolling counter."""
+    api = SchellenbergUsbApi(hass, "/dev/ttyUSB0")
+    api.register_entity("8F3654", "11", "Remote channel")
+
+    # Real Hypfer example shape: ss + enum + id + cmd + counter + local + rssi
+    api._handle_message("ss118F365400029820CB")
+
+    last = api.get_last_received("8F3654", "11")
+    assert last is not None
+    assert last["command"] == "00"
+    assert last["interpreted_command"] == "stop"
+
+
+@pytest.mark.asyncio
 async def test_handle_message_device_event_registered_device(
     hass: HomeAssistant,
 ) -> None:
@@ -266,8 +300,8 @@ async def test_handle_message_device_event_registered_device(
     with patch(
         "custom_components.schellenberg_usb.api.async_dispatcher_send"
     ) as mock_send:
-        # Format: ssXXYYYYYYZZZZCCPPRR where XX=enum, YYYYYY=device_id, CC=command
-        api._handle_message("ss10ABC123ZZZZ01PP00")
+        # Format: ssXXYYYYYYCCNNNNPP RR where XX=enum, YYYYYY=device_id, CC=command
+        api._handle_message("ss10ABC12301ZZZZPP00")
 
         # Calibration receives the ID-only signal and the cover receives an exact signal.
         assert mock_send.call_count == 2
@@ -302,7 +336,7 @@ async def test_handle_message_preserves_leading_zero_status_enum(
     with patch(
         "custom_components.schellenberg_usb.api.async_dispatcher_send"
     ) as mock_send:
-        api._handle_message(f"ss{status_enum}3720B8ZZZZ01PP00")
+        api._handle_message(f"ss{status_enum}3720B801ZZZZPP00")
 
     assert ("3720B8", status_enum) in api._registered_entity_keys
     assert mock_send.call_count == 2
@@ -337,10 +371,10 @@ async def test_primary_and_secondary_status_identities_both_match(
             "custom_components.schellenberg_usb.api.async_dispatcher_send"
         ) as mock_send,
     ):
-        api._handle_message("ss083720B8ZZZZ01PP00")
+        api._handle_message("ss083720B801ZZZZPP00")
         primary = api.get_last_received("3720B8", "08")
-        api._handle_message("ss083720B8ZZZZE1PP00")
-        api._handle_message("ss23F2B8D5ZZZZC1PP00")
+        api._handle_message("ss083720B8E1ZZZZPP00")
+        api._handle_message("ss23F2B8D5C1ZZZZPP00")
         secondary = api.get_last_received("F2B8D5", "23")
 
     assert primary is not None
@@ -373,13 +407,13 @@ def test_phase_labelled_capture_selects_calibration_primary_and_secondary(
     api = SchellenbergUsbApi(hass, "/dev/ttyUSB0")
     api.start_status_frame_capture(phase="opening")
 
-    api._handle_message("ss083720B8ZZZZ01PP00")
-    api._handle_message("ss2306C5C0ZZZZE1PP00")
-    api._handle_message("ss083720B8ZZZZ00PP00")
+    api._handle_message("ss083720B801ZZZZPP00")
+    api._handle_message("ss2306C5C0E1ZZZZPP00")
+    api._handle_message("ss083720B800ZZZZPP00")
     api.set_status_frame_capture_phase("closing")
-    api._handle_message("ss083720B8ZZZZ02PP00")
-    api._handle_message("ss2306C5C0ZZZZE2PP00")
-    api._handle_message("ss083720B8ZZZZ00PP00")
+    api._handle_message("ss083720B802ZZZZPP00")
+    api._handle_message("ss2306C5C0E2ZZZZPP00")
+    api._handle_message("ss083720B800ZZZZPP00")
 
     result = api.finish_status_frame_capture(end_reason="completed")
 
@@ -416,8 +450,8 @@ def test_capture_does_not_promote_unknown_command_identity(
     """Test E/C/A-family frames remain secondary when no 00/01/02 exists."""
     api = SchellenbergUsbApi(hass, "/dev/ttyUSB0")
     api.start_status_frame_capture(phase="opening")
-    api._handle_message("ss1106C5C0ZZZZE1PP00")
-    api._handle_message("ss1106C5C0ZZZZC2PP00")
+    api._handle_message("ss1106C5C0E1ZZZZPP00")
+    api._handle_message("ss1106C5C0C2ZZZZPP00")
 
     result = api.finish_status_frame_capture(end_reason="completed_without_status")
 
@@ -533,7 +567,7 @@ async def test_unmatched_frames_are_not_warnings_when_a_cover_is_registered(
     api.register_entity("3720B8", "08", "Sitting room")
 
     with caplog.at_level("WARNING"):
-        api._handle_message("ss23ABCDEFZZZZC1PP00")
+        api._handle_message("ss23ABCDEFC1ZZZZPP00")
 
     assert "no cover has this status identity" not in caplog.text
     last = api.get_last_received("ABCDEF", "23")
@@ -559,7 +593,7 @@ async def test_handle_message_requires_exact_status_pair(
     with patch(
         "custom_components.schellenberg_usb.api.async_dispatcher_send"
     ) as mock_send:
-        api._handle_message("ss133720B8ZZZZ01PP00")
+        api._handle_message("ss133720B801ZZZZPP00")
 
     mock_send.assert_called_once_with(
         hass,
@@ -584,7 +618,7 @@ async def test_handle_message_device_event_unregistered_device(
         "custom_components.schellenberg_usb.api.async_dispatcher_send"
     ) as mock_send:
         # Message with unknown device - should still dispatch
-        api._handle_message("ss99UNKNOWNZZZZ01PP00")
+        api._handle_message("ss99UNKN0W01ZZZZPP00")
 
         # Should dispatch event even for unknown devices
         mock_send.assert_called_once()
