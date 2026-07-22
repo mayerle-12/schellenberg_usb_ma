@@ -43,7 +43,6 @@ from .const import (
     EVENT_STARTED_MOVING_DOWN,
     EVENT_STARTED_MOVING_UP,
     EVENT_STOPPED,
-    EVENT_MOTOR_STATUS,
     SIGNAL_CALIBRATION_COMPLETED,
     SIGNAL_DEVICE_EVENT,
     SIGNAL_MANUAL_POSITION_SYNC,
@@ -324,12 +323,7 @@ class SchellenbergCover(CoverEntity, RestoreEntity):
         self._command_device_id = command_device_id or device_id
         self._command_enum = device_enum
         self._status_identity_source = status_identity_source or "legacy"
-        # Unknown means "do not invent status from the command identity". Explicit
-        # status fields (manual/auto-bind) are still honored.
-        if (
-            self._status_identity_source == STATUS_IDENTITY_SOURCE_UNKNOWN
-            and not (status_device_id and status_enum)
-        ):
+        if self._status_identity_source == STATUS_IDENTITY_SOURCE_UNKNOWN:
             primary_identity = None
         else:
             primary_identity = normalize_status_identity(
@@ -761,7 +755,7 @@ class SchellenbergCover(CoverEntity, RestoreEntity):
                 status="confirmed",
             )
             self._start_position_tracking()
-        elif event in (EVENT_STOPPED, EVENT_MOTOR_STATUS):
+        elif event == EVENT_STOPPED:
             previous_position = self._attr_current_cover_position
             self._position_source_kind = "primary status"
             self._position_confirmed_since_restart = True
@@ -771,10 +765,9 @@ class SchellenbergCover(CoverEntity, RestoreEntity):
                 f"command {event}"
             )
             _LOGGER.info(
-                "Device %s STOPPED via %s (position: %d%%)",
+                "Device %s STOPPED (position: %d%%)",
                 self._device_name,
-                event,
-                self._attr_current_cover_position or 0,
+                self._attr_current_cover_position,
             )
             # Stop real-time position tracking
             self._stop_position_tracking()

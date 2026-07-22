@@ -54,7 +54,6 @@ DATA_UNSUB_DISPATCHER = "unsub_dispatcher"
 CMD_STOP = "00"  # 0x00 - Stop
 CMD_UP = "01"  # 0x01 - Up
 CMD_DOWN = "02"  # 0x02 - Down
-CMD_MOTOR_STATUS = "1F"  # 0x1F - Bidirectional motor status / endstop-style report
 CMD_ALLOW_PAIRING = "40"  # 0x40 - Allow Pairing (make device listen to new remote)
 CMD_MANUAL_UP = "41"  # 0x41 - Manual Up (as long as button held)
 CMD_MANUAL_DOWN = "42"  # 0x42 - Manual Down (as long as button held)
@@ -71,7 +70,6 @@ SENSOR_WINDOW_HANDLE_180 = "3B"  # 0x3B - Window handle at 180°
 EVENT_STARTED_MOVING_UP = "01"
 EVENT_STARTED_MOVING_DOWN = "02"
 EVENT_STOPPED = "00"
-EVENT_MOTOR_STATUS = "1F"  # Often used by bidirectional motors instead of 0x00
 
 # USB Stick system commands (prefixed with !)
 CMD_VERIFY = "!?"  # Get version and current mode

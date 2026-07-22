@@ -861,7 +861,7 @@ async def test_api_pair_device_already_pairing(hass: HomeAssistant) -> None:
 
 @pytest.mark.asyncio
 async def test_api_pair_device_success(hass: HomeAssistant) -> None:
-    """Test pairing teaches immediately then captures an optional sl identity."""
+    """Test pairing waits for transmit completion and exits pairing mode."""
     api = SchellenbergUsbApi(hass, "/dev/ttyUSB0")
 
     mock_transport = MagicMock()
@@ -875,10 +875,7 @@ async def test_api_pair_device_success(hass: HomeAssistant) -> None:
         return True
 
     with (
-        patch(
-            "custom_components.schellenberg_usb.api.asyncio.wait_for",
-            new=AsyncMock(return_value="device_abc123"),
-        ),
+        patch("asyncio.wait_for", new=AsyncMock(return_value="device_abc123")),
         patch.object(
             api,
             "_wait_for_transmitter_idle",
@@ -890,6 +887,7 @@ async def test_api_pair_device_success(hass: HomeAssistant) -> None:
 
     assert result == ("device_abc123", "10")
     assert [call.args[0] for call in mock_transport.write.call_args_list] == [
+        b"sp\r\n",
         b"ss109600000\r\n",
         b"ss109400000\r\n",
         b"sp\r\n",

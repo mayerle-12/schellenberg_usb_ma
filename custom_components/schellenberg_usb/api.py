@@ -37,7 +37,6 @@ from .const import (
     CMD_LED_ON,
     CMD_MANUAL_DOWN,
     CMD_MANUAL_UP,
-    CMD_MOTOR_STATUS,
     CMD_PAIR,
     CMD_REBOOT,
     CMD_SET_LOWER_ENDPOINT,
@@ -48,22 +47,17 @@ from .const import (
     CMD_VERIFY,
     CONF_COMMAND_DEVICE_ID,
     CONF_COMMAND_ENUM,
-    CONF_DEVICE_ENUM,
-    CONF_DEVICE_ID,
     CONF_SECONDARY_STATUS_IDENTITIES,
     CONF_STATUS_DEVICE_ID,
     CONF_STATUS_IDENTITY_SOURCE,
     CONF_STATUS_ENUM,
-    DOMAIN,
     PAIRING_DEVICE_ENUM_START,
     PAIRING_TIMEOUT,
     SIGNAL_DEVICE_EVENT,
     SIGNAL_MANUAL_POSITION_SYNC,
     SIGNAL_STICK_STATUS_UPDATED,
-    STATUS_DISCOVERY_TIMEOUT,
-    STATUS_IDENTITY_SOURCE_REMOTE_DISCOVERY,
     STATUS_IDENTITY_SOURCE_UNKNOWN,
-    SUBENTRY_TYPE_BLIND,
+    STATUS_DISCOVERY_TIMEOUT,
     VERIFY_TIMEOUT,
 )
 from .identities import (
@@ -98,9 +92,6 @@ def _interpret_status_command(command: str) -> str:
         CMD_STOP: "stop",
         CMD_UP: "open",
         CMD_DOWN: "close",
-        # Bidirectional motors often report 0x1F as a status/endstop-style frame
-        # instead of (or in addition to) classic 0x00 stop.
-        CMD_MOTOR_STATUS: "stop",
     }.get(command.upper(), "unknown")
 
 
@@ -124,8 +115,6 @@ class SchellenbergUsbApi:
         """Initialize the Schellenberg USB API."""
         self.hass = hass
         self.port = port
-        self.config_entry_id: str | None = None
-        self._auto_bind_in_progress: set[StatusIdentity] = set()
         self._transport: asyncio.Transport | None = None
         self._protocol: SchellenbergProtocol | None = None
         self._registered_devices: dict[
@@ -551,10 +540,7 @@ class SchellenbergUsbApi:
                 self._raw_received_frames.append(raw_frame)
                 if self._status_discovery_frames is not None:
                     captured_frame = dict(raw_frame)
-                    if normalized_command in {
-                        CMD_STOP,
-                        CMD_MOTOR_STATUS,
-                    } and captured_frame["phase"] in {
+                    if normalized_command == CMD_STOP and captured_frame["phase"] in {
                         "opening",
                         "closing",
                     }:
@@ -585,19 +571,11 @@ class SchellenbergUsbApi:
                     _LOGGER.log(
                         level,
                         "Received device_id=%s enum=%s cmd=%s matched=False "
-                        "interpreted=%s; no cover has this status identity. "
-                        "Attempting auto-bind to a blind with unknown status.",
+                        "interpreted=%s; no cover has this status identity",
                         normalized_device_id,
                         normalized_device_enum,
                         normalized_command,
                         interpretation,
-                    )
-                    self.hass.async_create_task(
-                        self._async_try_auto_bind_status_identity(
-                            normalized_device_id,
-                            normalized_device_enum,
-                            normalized_command,
-                        )
                     )
                 else:
                     _LOGGER.debug(
@@ -627,188 +605,6 @@ class SchellenbergUsbApi:
                     )
             except (IndexError, ValueError) as err:
                 _LOGGER.debug("Failed to parse message %s: %s", message, err)
-
-    async def _async_try_auto_bind_status_identity(
-        self,
-        device_id: str,
-        device_enum: str,
-        command: str,
-    ) -> None:
-        """Bind an unmatched RF identity to a blind that still needs status.
-
-        Fresh pairings often leave status as unknown while the motor already
-        reports on its own identity (e.g. F4442C/0E). Persist that identity and
-        deliver the current frame so stop/status tracking starts working.
-        """
-        identity = normalize_status_identity(device_id, device_enum)
-        if identity is None:
-            _LOGGER.warning(
-                "Auto-bind skipped: invalid status identity device_id=%s enum=%s",
-                device_id,
-                device_enum,
-            )
-            return
-        if identity in self._registered_entity_keys:
-            _LOGGER.debug(
-                "Auto-bind skipped: %s/%s already registered", device_id, device_enum
-            )
-            return
-        if identity in self._auto_bind_in_progress:
-            return
-
-        entry = self._resolve_hub_config_entry()
-        if entry is None:
-            _LOGGER.warning(
-                "Auto-bind skipped for %s/%s: no hub config entry "
-                "(config_entry_id=%s). Reload the Schellenberg USB MA integration.",
-                device_id,
-                device_enum,
-                self.config_entry_id,
-            )
-            return
-
-        blind_subentries = [
-            subentry
-            for subentry in entry.subentries.values()
-            if subentry.subentry_type == SUBENTRY_TYPE_BLIND
-        ]
-        if not blind_subentries:
-            _LOGGER.warning(
-                "Auto-bind skipped for %s/%s: hub has no blind subentries",
-                device_id,
-                device_enum,
-            )
-            return
-
-        def _missing_status(subentry: Any) -> bool:
-            source = str(subentry.data.get(CONF_STATUS_IDENTITY_SOURCE) or "")
-            status_id = str(subentry.data.get(CONF_STATUS_DEVICE_ID) or "").strip()
-            status_enum = str(subentry.data.get(CONF_STATUS_ENUM) or "").strip()
-            if source == STATUS_IDENTITY_SOURCE_UNKNOWN:
-                return True
-            return not (status_id and status_enum)
-
-        candidates = [sub for sub in blind_subentries if _missing_status(sub)]
-        # If every blind already has *some* status configured but none matches this
-        # RF identity, still bind when there is exactly one blind overall.
-        if not candidates and len(blind_subentries) == 1:
-            candidates = list(blind_subentries)
-            _LOGGER.warning(
-                "Auto-bind: single blind '%s' will replace its status identity "
-                "with observed %s/%s",
-                candidates[0].title,
-                device_id,
-                device_enum,
-            )
-
-        if len(candidates) != 1:
-            _LOGGER.warning(
-                "Cannot auto-bind status identity %s/%s: %d candidate blinds "
-                "(need exactly one; total blinds=%d). Set primary status manually "
-                "to %s/%s via Configure → Edit.",
-                device_id,
-                device_enum,
-                len(candidates),
-                len(blind_subentries),
-                device_id,
-                device_enum,
-            )
-            return
-
-        subentry = candidates[0]
-        self._auto_bind_in_progress.add(identity)
-        try:
-            command_device_id = str(
-                subentry.data.get(CONF_COMMAND_DEVICE_ID)
-                or subentry.data.get(CONF_DEVICE_ID)
-                or ""
-            ).strip().upper()
-            command_enum = (
-                str(
-                    subentry.data.get(CONF_COMMAND_ENUM)
-                    or subentry.data.get(CONF_DEVICE_ENUM)
-                    or ""
-                )
-                .strip()
-                .upper()
-                .zfill(2)
-            )
-            if len(command_enum) > 2:
-                command_enum = command_enum[-2:]
-            if not command_device_id or not command_enum:
-                _LOGGER.warning(
-                    "Auto-bind skipped for blind '%s': missing command identity "
-                    "in subentry data keys=%s",
-                    subentry.title,
-                    list(subentry.data.keys()),
-                )
-                return
-
-            new_data = dict(subentry.data)
-            new_data[CONF_STATUS_DEVICE_ID] = device_id
-            new_data[CONF_STATUS_ENUM] = device_enum
-            new_data[CONF_STATUS_IDENTITY_SOURCE] = (
-                STATUS_IDENTITY_SOURCE_REMOTE_DISCOVERY
-            )
-
-            self.register_entity(
-                device_id,
-                device_enum,
-                subentry.title,
-                command_device_id=command_device_id,
-                command_enum=command_enum,
-                secondary_status_identities=new_data.get(
-                    CONF_SECONDARY_STATUS_IDENTITIES
-                ),
-            )
-            self.hass.config_entries.async_update_subentry(
-                entry, subentry, data=new_data
-            )
-            _LOGGER.warning(
-                "Auto-bound status identity %s/%s to blind '%s' "
-                "(source=remote_discovery). Delivering cmd=%s.",
-                device_id,
-                device_enum,
-                subentry.title,
-                command,
-            )
-            async_dispatcher_send(
-                self.hass,
-                f"{SIGNAL_DEVICE_EVENT}_{device_id}_{device_enum}",
-                command,
-            )
-        except Exception:
-            _LOGGER.exception(
-                "Auto-bind failed for status identity %s/%s", device_id, device_enum
-            )
-        finally:
-            self._auto_bind_in_progress.discard(identity)
-
-    def _resolve_hub_config_entry(self) -> Any | None:
-        """Return the hub config entry for this API instance."""
-        if self.config_entry_id:
-            entry = self.hass.config_entries.async_get_entry(self.config_entry_id)
-            if entry is not None:
-                return entry
-
-        matches = [
-            entry
-            for entry in self.hass.config_entries.async_entries(DOMAIN)
-            if getattr(entry, "runtime_data", None) is self
-        ]
-        if len(matches) == 1:
-            entry_id = getattr(matches[0], "entry_id", None)
-            if entry_id:
-                self.config_entry_id = entry_id
-            return matches[0]
-
-        entries = list(self.hass.config_entries.async_entries(DOMAIN))
-        if len(entries) == 1:
-            entry_id = getattr(entries[0], "entry_id", None)
-            if entry_id:
-                self.config_entry_id = entry_id
-            return entries[0]
-        return None
 
     async def send_command(self, command: str, *, source: str = "internal") -> bool:
         """Queue a raw command on the serial transport."""
@@ -1104,14 +900,7 @@ class SchellenbergUsbApi:
         return result
 
     async def pair_device_and_wait(self) -> tuple[str, str] | None:
-        """Teach the next enum to a motor that is already in learn mode.
-
-        Per Hypfer/LoPablo the motor must already be in programming/learn mode,
-        then the stick sends 0x60 and 0x40. Some motors also emit `sl` learn
-        beacons (useful as the status identity). Silent tube motors never send
-        `sl`, so teach must not block on that frame — that was causing the
-        2-minute pairing hang when only `sp` responses appeared in the log.
-        """
+        """Put the stick into pairing mode and wait for a device to pair."""
         if self._pairing_future and not self._pairing_future.done():
             _LOGGER.warning("Pairing already in progress")
             return None
@@ -1140,12 +929,25 @@ class SchellenbergUsbApi:
         self._update_status()
         self._pairing_future = self.hass.loop.create_future()
         paired = False
-        device_id: str | None = None
 
         try:
-            _LOGGER.info(
-                "Sending teach immediately (motor must already be in learn mode); "
-                "optional sl capture window follows"
+            # `sp` only reads stick parameters (Hypfer). It does not arm learn mode;
+            # we wait for an RF `sl…` (or new `ss…`) frame from a motor in learn mode.
+            _LOGGER.debug(
+                "Listening for motor learn frame (sl); probing stick with command: sp"
+            )
+            if not await self.send_command(CMD_GET_PARAM_P):
+                raise ConnectionError("could not probe stick before pairing listen")
+
+            device_id = await asyncio.wait_for(
+                self._pairing_future, timeout=PAIRING_TIMEOUT
+            )
+            _LOGGER.debug(
+                "Received device ID %s, sending pairing teach_payload=%s "
+                "then finish_payload=%s",
+                device_id,
+                pair_command,
+                finish_pair_command,
             )
             for phase, payload in (
                 ("teach_60", pair_command),
@@ -1164,33 +966,10 @@ class SchellenbergUsbApi:
                     phase,
                     payload,
                 )
-
-            # Capture a motor `sl`/`ss` identity when the motor is bidirectional.
-            try:
-                device_id = await asyncio.wait_for(
-                    self._pairing_future, timeout=min(PAIRING_TIMEOUT, 20)
-                )
-                _LOGGER.info(
-                    "Captured pairing identity from RF learn/status frame device_id=%s",
-                    device_id,
-                )
-            except TimeoutError:
-                stick_id = await self.get_device_id()
-                stick_hex = (
-                    str(stick_id).strip().upper()
-                    if stick_id and len(str(stick_id).strip()) >= 4
-                    else "0000"
-                )
-                # Unique 6-hex command identity when the motor stays silent.
-                device_id = f"{device_enum}{stick_hex[-4:]}".upper()
-                _LOGGER.warning(
-                    "No sl/ss learn frame after teach; using synthetic command "
-                    "identity device_id=%s enum=%s (status discovery may be needed)",
-                    device_id,
-                    device_enum,
-                )
-
             paired = True
+        except TimeoutError:
+            _LOGGER.warning("Pairing timeout - no device responded with ID")
+            return None
         except ConnectionError as err:
             _LOGGER.warning("Pairing stopped because serial connection failed: %s", err)
             return None

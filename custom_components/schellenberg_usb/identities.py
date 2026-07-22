@@ -101,7 +101,7 @@ def summarize_status_discovery_frames(
     frames: Iterable[Mapping[str, Any]],
 ) -> dict[str, Any]:
     """Group one bounded remote-capture window and choose its tracking stream."""
-    recognized = {"00", "01", "02", "1F"}
+    recognized = {"00", "01", "02"}
     groups: dict[StatusIdentity, dict[str, Any]] = {}
     for frame in frames:
         identity = normalize_status_identity(

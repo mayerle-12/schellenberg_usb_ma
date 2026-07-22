@@ -198,7 +198,6 @@ async def async_setup_entry(
 
     port = entry.data[CONF_SERIAL_PORT]
     api = SchellenbergUsbApi(hass, port)
-    api.config_entry_id = entry.entry_id
 
     # Store API in runtime_data for platforms and services access
     entry.runtime_data = api
