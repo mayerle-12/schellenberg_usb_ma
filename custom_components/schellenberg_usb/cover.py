@@ -43,6 +43,7 @@ from .const import (
     EVENT_STARTED_MOVING_DOWN,
     EVENT_STARTED_MOVING_UP,
     EVENT_STOPPED,
+    EVENT_MOTOR_STATUS,
     SIGNAL_CALIBRATION_COMPLETED,
     SIGNAL_DEVICE_EVENT,
     SIGNAL_MANUAL_POSITION_SYNC,
@@ -755,7 +756,7 @@ class SchellenbergCover(CoverEntity, RestoreEntity):
                 status="confirmed",
             )
             self._start_position_tracking()
-        elif event == EVENT_STOPPED:
+        elif event in (EVENT_STOPPED, EVENT_MOTOR_STATUS):
             previous_position = self._attr_current_cover_position
             self._position_source_kind = "primary status"
             self._position_confirmed_since_restart = True
@@ -765,9 +766,10 @@ class SchellenbergCover(CoverEntity, RestoreEntity):
                 f"command {event}"
             )
             _LOGGER.info(
-                "Device %s STOPPED (position: %d%%)",
+                "Device %s STOPPED via %s (position: %d%%)",
                 self._device_name,
-                self._attr_current_cover_position,
+                event,
+                self._attr_current_cover_position or 0,
             )
             # Stop real-time position tracking
             self._stop_position_tracking()

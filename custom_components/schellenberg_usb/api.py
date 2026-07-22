@@ -37,6 +37,7 @@ from .const import (
     CMD_LED_ON,
     CMD_MANUAL_DOWN,
     CMD_MANUAL_UP,
+    CMD_MOTOR_STATUS,
     CMD_PAIR,
     CMD_REBOOT,
     CMD_SET_LOWER_ENDPOINT,
@@ -92,6 +93,9 @@ def _interpret_status_command(command: str) -> str:
         CMD_STOP: "stop",
         CMD_UP: "open",
         CMD_DOWN: "close",
+        # Bidirectional motors often report 0x1F as a status/endstop-style frame
+        # instead of (or in addition to) classic 0x00 stop.
+        CMD_MOTOR_STATUS: "stop",
     }.get(command.upper(), "unknown")
 
 
@@ -540,7 +544,10 @@ class SchellenbergUsbApi:
                 self._raw_received_frames.append(raw_frame)
                 if self._status_discovery_frames is not None:
                     captured_frame = dict(raw_frame)
-                    if normalized_command == CMD_STOP and captured_frame["phase"] in {
+                    if normalized_command in {
+                        CMD_STOP,
+                        CMD_MOTOR_STATUS,
+                    } and captured_frame["phase"] in {
                         "opening",
                         "closing",
                     }:
@@ -571,11 +578,15 @@ class SchellenbergUsbApi:
                     _LOGGER.log(
                         level,
                         "Received device_id=%s enum=%s cmd=%s matched=False "
-                        "interpreted=%s; no cover has this status identity",
+                        "interpreted=%s; no cover has this status identity. "
+                        "Set the blind's primary status identity to %s/%s "
+                        "(Configure device → edit identities, or Discover status).",
                         normalized_device_id,
                         normalized_device_enum,
                         normalized_command,
                         interpretation,
+                        normalized_device_id,
+                        normalized_device_enum,
                     )
                 else:
                     _LOGGER.debug(
