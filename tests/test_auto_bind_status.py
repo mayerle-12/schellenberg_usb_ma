@@ -74,6 +74,46 @@ async def test_auto_bind_status_identity_for_single_unknown_blind(
 
 
 @pytest.mark.asyncio
+async def test_auto_bind_replaces_status_on_single_blind(
+    hass: HomeAssistant,
+) -> None:
+    """Test a lone blind adopts RF status even if another status was stored."""
+    api = SchellenbergUsbApi(hass, "/dev/ttyUSB0")
+    # Simulate missing config_entry_id; resolve via runtime_data match.
+    api.config_entry_id = None
+
+    subentry = SimpleNamespace(
+        subentry_type=SUBENTRY_TYPE_BLIND,
+        title="Terrace window",
+        data={
+            CONF_COMMAND_DEVICE_ID: "103E7C",
+            CONF_COMMAND_ENUM: "10",
+            CONF_STATUS_DEVICE_ID: "103E7C",
+            CONF_STATUS_ENUM: "10",
+            CONF_STATUS_IDENTITY_SOURCE: STATUS_IDENTITY_SOURCE_REMOTE_DISCOVERY,
+        },
+    )
+    entry = SimpleNamespace(
+        entry_id="entry-fallback",
+        subentries={"blind-1": subentry},
+        runtime_data=api,
+    )
+    hass.config_entries = MagicMock()
+    hass.config_entries.async_get_entry = MagicMock(return_value=None)
+    hass.config_entries.async_entries = MagicMock(return_value=[entry])
+    hass.config_entries.async_update_subentry = MagicMock()
+
+    with patch("custom_components.schellenberg_usb.api.async_dispatcher_send"):
+        await api._async_try_auto_bind_status_identity("F4442C", "0E", "1F")
+
+    assert ("F4442C", "0E") in api._registered_entity_keys
+    assert api.config_entry_id == "entry-fallback"
+    kwargs = hass.config_entries.async_update_subentry.call_args.kwargs
+    assert kwargs["data"][CONF_STATUS_DEVICE_ID] == "F4442C"
+    assert kwargs["data"][CONF_STATUS_ENUM] == "0E"
+
+
+@pytest.mark.asyncio
 async def test_auto_bind_skipped_when_multiple_unknown_blinds(
     hass: HomeAssistant,
 ) -> None:

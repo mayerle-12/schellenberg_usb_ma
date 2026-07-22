@@ -54,6 +54,7 @@ from .const import (
     CONF_STATUS_DEVICE_ID,
     CONF_STATUS_IDENTITY_SOURCE,
     CONF_STATUS_ENUM,
+    DOMAIN,
     PAIRING_DEVICE_ENUM_START,
     PAIRING_TIMEOUT,
     SIGNAL_DEVICE_EVENT,
@@ -596,8 +597,7 @@ class SchellenbergUsbApi:
                             normalized_device_id,
                             normalized_device_enum,
                             normalized_command,
-                        ),
-                        name="schellenberg-auto-bind-status",
+                        )
                     )
                 else:
                     _LOGGER.debug(
@@ -634,7 +634,7 @@ class SchellenbergUsbApi:
         device_enum: str,
         command: str,
     ) -> None:
-        """Bind an unmatched RF identity to the only blind missing status.
+        """Bind an unmatched RF identity to a blind that still needs status.
 
         Fresh pairings often leave status as unknown while the motor already
         reports on its own identity (e.g. F4442C/0E). Persist that identity and
@@ -642,16 +642,29 @@ class SchellenbergUsbApi:
         """
         identity = normalize_status_identity(device_id, device_enum)
         if identity is None:
+            _LOGGER.warning(
+                "Auto-bind skipped: invalid status identity device_id=%s enum=%s",
+                device_id,
+                device_enum,
+            )
             return
         if identity in self._registered_entity_keys:
+            _LOGGER.debug(
+                "Auto-bind skipped: %s/%s already registered", device_id, device_enum
+            )
             return
         if identity in self._auto_bind_in_progress:
             return
-        if not self.config_entry_id:
-            return
 
-        entry = self.hass.config_entries.async_get_entry(self.config_entry_id)
+        entry = self._resolve_hub_config_entry()
         if entry is None:
+            _LOGGER.warning(
+                "Auto-bind skipped for %s/%s: no hub config entry "
+                "(config_entry_id=%s). Reload the Schellenberg USB MA integration.",
+                device_id,
+                device_enum,
+                self.config_entry_id,
+            )
             return
 
         blind_subentries = [
@@ -660,24 +673,43 @@ class SchellenbergUsbApi:
             if subentry.subentry_type == SUBENTRY_TYPE_BLIND
         ]
         if not blind_subentries:
+            _LOGGER.warning(
+                "Auto-bind skipped for %s/%s: hub has no blind subentries",
+                device_id,
+                device_enum,
+            )
             return
 
         def _missing_status(subentry: Any) -> bool:
             source = str(subentry.data.get(CONF_STATUS_IDENTITY_SOURCE) or "")
             status_id = str(subentry.data.get(CONF_STATUS_DEVICE_ID) or "").strip()
             status_enum = str(subentry.data.get(CONF_STATUS_ENUM) or "").strip()
-            return source == STATUS_IDENTITY_SOURCE_UNKNOWN or not (
-                status_id and status_enum
-            )
+            if source == STATUS_IDENTITY_SOURCE_UNKNOWN:
+                return True
+            return not (status_id and status_enum)
 
         candidates = [sub for sub in blind_subentries if _missing_status(sub)]
+        # If every blind already has *some* status configured but none matches this
+        # RF identity, still bind when there is exactly one blind overall.
+        if not candidates and len(blind_subentries) == 1:
+            candidates = list(blind_subentries)
+            _LOGGER.warning(
+                "Auto-bind: single blind '%s' will replace its status identity "
+                "with observed %s/%s",
+                candidates[0].title,
+                device_id,
+                device_enum,
+            )
+
         if len(candidates) != 1:
             _LOGGER.warning(
-                "Cannot auto-bind status identity %s/%s: %d blinds need status "
-                "(need exactly one). Set primary status manually to %s/%s.",
+                "Cannot auto-bind status identity %s/%s: %d candidate blinds "
+                "(need exactly one; total blinds=%d). Set primary status manually "
+                "to %s/%s via Configure → Edit.",
                 device_id,
                 device_enum,
                 len(candidates),
+                len(blind_subentries),
                 device_id,
                 device_enum,
             )
@@ -691,12 +723,25 @@ class SchellenbergUsbApi:
                 or subentry.data.get(CONF_DEVICE_ID)
                 or ""
             ).strip().upper()
-            command_enum = str(
-                subentry.data.get(CONF_COMMAND_ENUM)
-                or subentry.data.get(CONF_DEVICE_ENUM)
-                or ""
-            ).strip().upper()
+            command_enum = (
+                str(
+                    subentry.data.get(CONF_COMMAND_ENUM)
+                    or subentry.data.get(CONF_DEVICE_ENUM)
+                    or ""
+                )
+                .strip()
+                .upper()
+                .zfill(2)
+            )
+            if len(command_enum) > 2:
+                command_enum = command_enum[-2:]
             if not command_device_id or not command_enum:
+                _LOGGER.warning(
+                    "Auto-bind skipped for blind '%s': missing command identity "
+                    "in subentry data keys=%s",
+                    subentry.title,
+                    list(subentry.data.keys()),
+                )
                 return
 
             new_data = dict(subentry.data)
@@ -732,8 +777,38 @@ class SchellenbergUsbApi:
                 f"{SIGNAL_DEVICE_EVENT}_{device_id}_{device_enum}",
                 command,
             )
+        except Exception:
+            _LOGGER.exception(
+                "Auto-bind failed for status identity %s/%s", device_id, device_enum
+            )
         finally:
             self._auto_bind_in_progress.discard(identity)
+
+    def _resolve_hub_config_entry(self) -> Any | None:
+        """Return the hub config entry for this API instance."""
+        if self.config_entry_id:
+            entry = self.hass.config_entries.async_get_entry(self.config_entry_id)
+            if entry is not None:
+                return entry
+
+        matches = [
+            entry
+            for entry in self.hass.config_entries.async_entries(DOMAIN)
+            if getattr(entry, "runtime_data", None) is self
+        ]
+        if len(matches) == 1:
+            entry_id = getattr(matches[0], "entry_id", None)
+            if entry_id:
+                self.config_entry_id = entry_id
+            return matches[0]
+
+        entries = list(self.hass.config_entries.async_entries(DOMAIN))
+        if len(entries) == 1:
+            entry_id = getattr(entries[0], "entry_id", None)
+            if entry_id:
+                self.config_entry_id = entry_id
+            return entries[0]
+        return None
 
     async def send_command(self, command: str, *, source: str = "internal") -> bool:
         """Queue a raw command on the serial transport."""
