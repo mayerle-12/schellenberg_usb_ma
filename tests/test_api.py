@@ -140,16 +140,36 @@ async def test_api_send_command(hass: HomeAssistant) -> None:
 
 @pytest.mark.asyncio
 async def test_api_pair_device_and_wait_timeout(hass: HomeAssistant) -> None:
-    """Test pairing with timeout."""
+    """Test pairing still succeeds with a synthetic ID when no sl frame arrives."""
     api = SchellenbergUsbApi(hass, "/dev/ttyUSB0")
     api._is_connected = True
+    api._device_mode = "listening"
+    mock_transport = MagicMock()
+    mock_transport.is_closing = MagicMock(return_value=False)
+    api._transport = mock_transport
 
-    with patch("asyncio.wait_for", new_callable=AsyncMock) as mock_wait:
-        mock_wait.side_effect = TimeoutError()
+    async def _complete_transmit(_: str) -> bool:
+        api._handle_message("t0")
+        return True
 
+    with (
+        patch.object(
+            api,
+            "_wait_for_transmitter_idle",
+            new=AsyncMock(side_effect=_complete_transmit),
+        ),
+        patch.object(api, "get_device_id", new=AsyncMock(return_value="08A00A")),
+        patch("custom_components.schellenberg_usb.api.asyncio.sleep", new=AsyncMock()),
+        patch("asyncio.wait_for", new=AsyncMock(side_effect=TimeoutError())),
+    ):
         result = await api.pair_device_and_wait()
 
-        assert result is None
+    assert result == ("10A00A", "10")
+    assert [call.args[0] for call in mock_transport.write.call_args_list] == [
+        b"ss109600000\r\n",
+        b"ss109400000\r\n",
+        b"sp\r\n",
+    ]
 
 
 @pytest.mark.asyncio

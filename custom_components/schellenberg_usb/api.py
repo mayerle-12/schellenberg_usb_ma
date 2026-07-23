@@ -900,7 +900,14 @@ class SchellenbergUsbApi:
         return result
 
     async def pair_device_and_wait(self) -> tuple[str, str] | None:
-        """Put the stick into pairing mode and wait for a device to pair."""
+        """Teach the next enum to a motor that is already in learn mode.
+
+        Per Hypfer/LoPablo the motor must already be in programming/learn mode
+        (wall control SUN+UP, or remote), then the stick sends 0x60 and 0x40.
+        Some motors emit `sl` learn beacons (useful as status identity). Silent
+        motors never send `sl`, so teach must not block on that frame — waiting
+        caused the 2-minute hang when only `sp` stick-parameter replies appeared.
+        """
         if self._pairing_future and not self._pairing_future.done():
             _LOGGER.warning("Pairing already in progress")
             return None
@@ -929,25 +936,12 @@ class SchellenbergUsbApi:
         self._update_status()
         self._pairing_future = self.hass.loop.create_future()
         paired = False
+        device_id: str | None = None
 
         try:
-            # `sp` only reads stick parameters (Hypfer). It does not arm learn mode;
-            # we wait for an RF `sl…` (or new `ss…`) frame from a motor in learn mode.
-            _LOGGER.debug(
-                "Listening for motor learn frame (sl); probing stick with command: sp"
-            )
-            if not await self.send_command(CMD_GET_PARAM_P):
-                raise ConnectionError("could not probe stick before pairing listen")
-
-            device_id = await asyncio.wait_for(
-                self._pairing_future, timeout=PAIRING_TIMEOUT
-            )
-            _LOGGER.debug(
-                "Received device ID %s, sending pairing teach_payload=%s "
-                "then finish_payload=%s",
-                device_id,
-                pair_command,
-                finish_pair_command,
+            _LOGGER.info(
+                "Sending teach immediately (motor must already be in learn mode); "
+                "optional sl capture window follows"
             )
             for phase, payload in (
                 ("teach_60", pair_command),
@@ -966,10 +960,33 @@ class SchellenbergUsbApi:
                     phase,
                     payload,
                 )
+
+            # Capture a motor `sl`/`ss` identity when the motor is bidirectional.
+            try:
+                device_id = await asyncio.wait_for(
+                    self._pairing_future, timeout=min(PAIRING_TIMEOUT, 20)
+                )
+                _LOGGER.info(
+                    "Captured pairing identity from RF learn/status frame device_id=%s",
+                    device_id,
+                )
+            except TimeoutError:
+                stick_id = await self.get_device_id()
+                stick_hex = (
+                    str(stick_id).strip().upper()
+                    if stick_id and len(str(stick_id).strip()) >= 4
+                    else "0000"
+                )
+                # Unique 6-hex command identity when the motor stays silent.
+                device_id = f"{device_enum}{stick_hex[-4:]}".upper()
+                _LOGGER.warning(
+                    "No sl/ss learn frame after teach; using synthetic command "
+                    "identity device_id=%s enum=%s (status discovery may be needed)",
+                    device_id,
+                    device_enum,
+                )
+
             paired = True
-        except TimeoutError:
-            _LOGGER.warning("Pairing timeout - no device responded with ID")
-            return None
         except ConnectionError as err:
             _LOGGER.warning("Pairing stopped because serial connection failed: %s", err)
             return None

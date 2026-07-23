@@ -887,7 +887,6 @@ async def test_api_pair_device_success(hass: HomeAssistant) -> None:
 
     assert result == ("device_abc123", "10")
     assert [call.args[0] for call in mock_transport.write.call_args_list] == [
-        b"sp\r\n",
         b"ss109600000\r\n",
         b"ss109400000\r\n",
         b"sp\r\n",
