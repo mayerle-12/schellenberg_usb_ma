@@ -37,6 +37,7 @@ from .const import (
     CMD_LED_ON,
     CMD_MANUAL_DOWN,
     CMD_MANUAL_UP,
+    CMD_MOTOR_STATUS,
     CMD_PAIR,
     CMD_REBOOT,
     CMD_SET_LOWER_ENDPOINT,
@@ -54,6 +55,7 @@ from .const import (
     PAIRING_DEVICE_ENUM_START,
     PAIRING_TIMEOUT,
     SIGNAL_DEVICE_EVENT,
+    SIGNAL_CALIBRATION_RF_EVENT,
     SIGNAL_MANUAL_POSITION_SYNC,
     SIGNAL_STICK_STATUS_UPDATED,
     STATUS_IDENTITY_SOURCE_UNKNOWN,
@@ -92,6 +94,9 @@ def _interpret_status_command(command: str) -> str:
         CMD_STOP: "stop",
         CMD_UP: "open",
         CMD_DOWN: "close",
+        # Bidirectional motors often report 0x1F as a status/endstop-style frame
+        # instead of (or in addition to) classic 0x00 stop.
+        CMD_MOTOR_STATUS: "stop",
     }.get(command.upper(), "unknown")
 
 
@@ -540,12 +545,24 @@ class SchellenbergUsbApi:
                 self._raw_received_frames.append(raw_frame)
                 if self._status_discovery_frames is not None:
                     captured_frame = dict(raw_frame)
-                    if normalized_command == CMD_STOP and captured_frame["phase"] in {
+                    if normalized_command in {
+                        CMD_STOP,
+                        CMD_MOTOR_STATUS,
+                    } and captured_frame["phase"] in {
                         "opening",
                         "closing",
                     }:
                         captured_frame["phase"] = f"{captured_frame['phase']}_endstop"
                     self._status_discovery_frames.append(captured_frame)
+                    # Calibration waits on the pairing/command id, but endstops often
+                    # arrive on a different motor RF identity (e.g. F4442C/1F).
+                    async_dispatcher_send(
+                        self.hass,
+                        SIGNAL_CALIBRATION_RF_EVENT,
+                        normalized_command,
+                        normalized_device_id,
+                        normalized_device_enum,
+                    )
                 if position_tracking:
                     # Secondary and unknown primary frames must never overwrite the
                     # last frame that can legitimately drive the position model.

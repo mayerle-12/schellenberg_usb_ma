@@ -40,7 +40,9 @@ from .const import (
     EVENT_STARTED_MOVING_DOWN,
     EVENT_STARTED_MOVING_UP,
     EVENT_STOPPED,
+    EVENT_MOTOR_STATUS,
     SIGNAL_CALIBRATION_COMPLETED,
+    SIGNAL_CALIBRATION_RF_EVENT,
     SIGNAL_DEVICE_EVENT,
     STATUS_IDENTITY_SOURCE_CALIBRATION,
     STATUS_IDENTITY_SOURCE_UNKNOWN,
@@ -66,6 +68,7 @@ class CalibrationFlowHandler:
         self._start_event: asyncio.Event | None = None
         self._stop_event: asyncio.Event | None = None
         self._event_listener_unsub: Any | None = None
+        self._event_listener_unsubs: list[Any] = []
         self._open_time: float | None = None
         self._close_time: float | None = None
         self._create_subentry_after_calibration = False
@@ -586,6 +589,15 @@ class CalibrationFlowHandler:
             last_step=True,
         )
 
+    def _clear_event_listeners(self) -> None:
+        """Unsubscribe all temporary calibration RF listeners."""
+        if self._event_listener_unsub is not None:
+            self._event_listener_unsub()
+            self._event_listener_unsub = None
+        for unsub in self._event_listener_unsubs:
+            unsub()
+        self._event_listener_unsubs = []
+
     async def _wait_for_movement_start(self, event_type: str) -> bool:
         """Wait for the device to start moving.
 
@@ -602,18 +614,25 @@ class CalibrationFlowHandler:
         loop = asyncio.get_event_loop()
 
         # Set up listener for movement start events
-        def handle_device_event(command: str) -> None:
+        def handle_device_event(command: str, *_args: Any) -> None:
             """Handle device event."""
             if command == event_type:
                 if self._start_event:
                     loop.call_soon_threadsafe(self._start_event.set)
 
-        # Subscribe to device events
-        self._event_listener_unsub = async_dispatcher_connect(
-            self.flow.hass,
-            f"{SIGNAL_DEVICE_EVENT}_{device_id}",
-            handle_device_event,
-        )
+        # Subscribe to device events (pairing id) and any RF during capture
+        self._event_listener_unsubs = [
+            async_dispatcher_connect(
+                self.flow.hass,
+                f"{SIGNAL_DEVICE_EVENT}_{device_id}",
+                handle_device_event,
+            ),
+            async_dispatcher_connect(
+                self.flow.hass,
+                SIGNAL_CALIBRATION_RF_EVENT,
+                handle_device_event,
+            ),
+        ]
 
         try:
             # Wait for movement start event with timeout
@@ -625,10 +644,7 @@ class CalibrationFlowHandler:
         else:
             return True
         finally:
-            # Clean up listener
-            if self._event_listener_unsub is not None:
-                self._event_listener_unsub()
-                self._event_listener_unsub = None
+            self._clear_event_listeners()
             self._start_event = None
 
     async def _wait_for_stop_event(self) -> bool:
@@ -642,22 +658,34 @@ class CalibrationFlowHandler:
         device_id = self._selected_device["id"]
         self._stop_event = asyncio.Event()
         loop = asyncio.get_event_loop()
+        stop_commands = {EVENT_STOPPED, EVENT_MOTOR_STATUS}
 
         # Set up listener for stop events
-        def handle_device_event(command: str) -> None:
-            """Handle device event."""
-            if command == EVENT_STOPPED:
+        def handle_device_event(command: str, *_args: Any) -> None:
+            """Handle device event from pairing id or motor RF status identity."""
+            if command in stop_commands:
                 if self._stop_event:
                     loop.call_soon_threadsafe(self._stop_event.set)
 
-        # Subscribe to device events
-        self._event_listener_unsub = async_dispatcher_connect(
-            self.flow.hass,
-            f"{SIGNAL_DEVICE_EVENT}_{device_id}",
-            handle_device_event,
-        )
+        # Pairing/command id often differs from motor status id (e.g. 40B71B vs F4442C).
+        self._event_listener_unsubs = [
+            async_dispatcher_connect(
+                self.flow.hass,
+                f"{SIGNAL_DEVICE_EVENT}_{device_id}",
+                handle_device_event,
+            ),
+            async_dispatcher_connect(
+                self.flow.hass,
+                SIGNAL_CALIBRATION_RF_EVENT,
+                handle_device_event,
+            ),
+        ]
 
         try:
+            # Ignore immediate endstop echoes right after movement starts.
+            await asyncio.sleep(2.0)
+            if self._stop_event is not None:
+                self._stop_event.clear()
             # Wait for stop event with timeout
             await asyncio.wait_for(self._stop_event.wait(), timeout=CALIBRATION_TIMEOUT)
         except TimeoutError:
@@ -665,10 +693,7 @@ class CalibrationFlowHandler:
         else:
             return True
         finally:
-            # Clean up listener
-            if self._event_listener_unsub is not None:
-                self._event_listener_unsub()
-                self._event_listener_unsub = None
+            self._clear_event_listeners()
             self._stop_event = None
 
     async def _save_calibration_data(self, open_time: float, close_time: float) -> None:
