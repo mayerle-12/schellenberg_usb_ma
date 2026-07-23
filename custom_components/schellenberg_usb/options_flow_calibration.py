@@ -340,33 +340,17 @@ class CalibrationFlowHandler:
                 last_step=False,
             )
 
-        # User clicked Next - wait for movement start and measure timing
+        # User clicked Start — begin timing immediately. Bidirectional motors
+        # often never emit classic 0x01/0x02 start frames (only 0x1F status).
         self._start_calibration_capture()
+        self._set_calibration_capture_phase("opening")
         try:
-            # Wait for the physical direction that corresponds to logical opening.
-            open_event = (
-                EVENT_STARTED_MOVING_DOWN
-                if self._selected_device.get(CONF_INVERT_DIRECTION, False)
-                else EVENT_STARTED_MOVING_UP
-            )
-            start_ok = await self._wait_for_movement_start(open_event)
-            if not start_ok:
-                self._finish_calibration_capture("opening_start_timeout")
-                errors["base"] = "calibration_start_timeout"
-                return self.flow.async_show_form(
-                    step_id="calibration_open_instruction",
-                    data_schema=vol.Schema({}),
-                    description_placeholders={
-                        "device_name": self._selected_device["name"],
-                    },
-                    errors=errors,
-                    last_step=False,
-                )
-
-            # Start timing the open movement
             self._calibration_start_time = time.time()
+            _LOGGER.info(
+                "Calibration opening timer started for %s; waiting for endstop/RF idle",
+                self._selected_device["name"],
+            )
 
-            # Wait for device to stop moving
             stop_ok = await self._wait_for_stop_event()
             if not stop_ok:
                 self._finish_calibration_capture("opening_stop_timeout")
@@ -383,7 +367,7 @@ class CalibrationFlowHandler:
 
             # Record the open time
             self._open_time = time.time() - self._calibration_start_time
-            _LOGGER.debug("Calibration open_time: %s seconds", self._open_time)
+            _LOGGER.info("Calibration open_time: %s seconds", self._open_time)
             self._set_calibration_capture_phase("idle_between_legs")
 
             # Move to close instruction step
@@ -422,33 +406,15 @@ class CalibrationFlowHandler:
                 last_step=False,
             )
 
-        # User clicked Next - wait for movement start and measure timing
+        # User clicked Start — begin timing immediately (no 0x01/0x02 start wait).
         self._set_calibration_capture_phase("closing")
         try:
-            # Wait for the physical direction that corresponds to logical closing.
-            close_event = (
-                EVENT_STARTED_MOVING_UP
-                if self._selected_device.get(CONF_INVERT_DIRECTION, False)
-                else EVENT_STARTED_MOVING_DOWN
-            )
-            start_ok = await self._wait_for_movement_start(close_event)
-            if not start_ok:
-                self._finish_calibration_capture("closing_start_timeout")
-                errors["base"] = "calibration_start_timeout"
-                return self.flow.async_show_form(
-                    step_id="calibration_close_instruction",
-                    data_schema=vol.Schema({}),
-                    description_placeholders={
-                        "device_name": self._selected_device["name"],
-                    },
-                    errors=errors,
-                    last_step=False,
-                )
-
-            # Start timing the close movement
             self._calibration_start_time = time.time()
+            _LOGGER.info(
+                "Calibration closing timer started for %s; waiting for endstop/RF idle",
+                self._selected_device["name"],
+            )
 
-            # Wait for device to stop moving
             stop_ok = await self._wait_for_stop_event()
             if not stop_ok:
                 self._finish_calibration_capture("closing_stop_timeout")
@@ -465,7 +431,7 @@ class CalibrationFlowHandler:
 
             # Record the close time
             self._close_time = time.time() - self._calibration_start_time
-            _LOGGER.debug("Calibration close_time: %s seconds", self._close_time)
+            _LOGGER.info("Calibration close_time: %s seconds", self._close_time)
             self._finish_calibration_capture("completed")
             self._apply_calibration_status_candidates()
 
@@ -648,10 +614,12 @@ class CalibrationFlowHandler:
             self._start_event = None
 
     async def _wait_for_stop_event(self) -> bool:
-        """Wait for the device to send a stop event.
+        """Wait until the motor appears stopped.
 
-        Returns:
-            True if stop event received, False if timeout.
+        Bidirectional motors often only emit 0x1F status frames (sometimes on a
+        different RF id than the pairing/command identity). Completion is:
+        - a stop/status frame followed by brief RF silence, or
+        - any calibration RF activity followed by RF silence (motor went quiet).
         """
         if self._selected_device is None:
             return False
@@ -659,15 +627,17 @@ class CalibrationFlowHandler:
         self._stop_event = asyncio.Event()
         loop = asyncio.get_event_loop()
         stop_commands = {EVENT_STOPPED, EVENT_MOTOR_STATUS}
+        last_rf = time.monotonic()
+        saw_rf = False
 
-        # Set up listener for stop events
         def handle_device_event(command: str, *_args: Any) -> None:
             """Handle device event from pairing id or motor RF status identity."""
-            if command in stop_commands:
-                if self._stop_event:
-                    loop.call_soon_threadsafe(self._stop_event.set)
+            nonlocal last_rf, saw_rf
+            saw_rf = True
+            last_rf = time.monotonic()
+            if command in stop_commands and self._stop_event:
+                loop.call_soon_threadsafe(self._stop_event.set)
 
-        # Pairing/command id often differs from motor status id (e.g. 40B71B vs F4442C).
         self._event_listener_unsubs = [
             async_dispatcher_connect(
                 self.flow.hass,
@@ -682,16 +652,34 @@ class CalibrationFlowHandler:
         ]
 
         try:
-            # Ignore immediate endstop echoes right after movement starts.
+            # Ignore immediate echoes from a previous move / button press.
             await asyncio.sleep(2.0)
             if self._stop_event is not None:
                 self._stop_event.clear()
-            # Wait for stop event with timeout
-            await asyncio.wait_for(self._stop_event.wait(), timeout=CALIBRATION_TIMEOUT)
-        except TimeoutError:
+            saw_rf = False
+            last_rf = time.monotonic()
+
+            deadline = time.monotonic() + CALIBRATION_TIMEOUT
+            while time.monotonic() < deadline:
+                if self._stop_event is not None and self._stop_event.is_set():
+                    # Require a short quiet period after the endstop-style frame.
+                    await asyncio.sleep(1.5)
+                    if time.monotonic() - last_rf >= 1.4:
+                        _LOGGER.info(
+                            "Calibration end detected via stop/status RF for %s",
+                            device_id,
+                        )
+                        return True
+                    self._stop_event.clear()
+                # Any RF then silence also means the motor finished reporting.
+                if saw_rf and time.monotonic() - last_rf >= 2.5:
+                    _LOGGER.info(
+                        "Calibration end detected via RF silence for %s",
+                        device_id,
+                    )
+                    return True
+                await asyncio.sleep(0.2)
             return False
-        else:
-            return True
         finally:
             self._clear_event_listeners()
             self._stop_event = None

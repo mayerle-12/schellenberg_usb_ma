@@ -197,12 +197,12 @@
         },
         "calibration_open_instruction": {
           "title": "Step 2: Open the blind",
-          "description": "Now we will measure how long it takes to open {device_name}. Press Start **then** press the open button on the control to start measuring.",
+          "description": "Press Start, then **immediately** press open on the wall control for {device_name}. Timing starts when you press Start. Home Assistant detects the end from the motor RF status (0x1F) when movement finishes — do not wait for a classic stop frame.",
           "submit": "Start"
         },
         "calibration_close_instruction": {
           "title": "Step 3: Close the blind",
-          "description": "Now we will measure how long it takes to close {device_name}. Press Start **then** press the close button on the control to start measuring.",
+          "description": "Press Start, then **immediately** press close on the wall control for {device_name}. Timing starts when you press Start; end is detected from motor RF status when it stops.",
           "submit": "Start"
         },
         "calibration_complete": {
